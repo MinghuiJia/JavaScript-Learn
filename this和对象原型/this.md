@@ -1,7 +1,7 @@
 <!--
  * @Author: jiaminghui
  * @Date: 2022-12-07 20:46:41
- * @LastEditTime: 2022-12-07 22:38:49
+ * @LastEditTime: 2022-12-08 22:44:54
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\this和对象原型\this.md
  * @Description: 
@@ -160,3 +160,223 @@
     - this就是记录的其中一个属性，会在函数执行的过程中用到
 
 ## this全面解析
+
+### 调用位置
+1.  调用位置：是函数在代码中被调用的位置（而不是声明的位置）
+2.  分析寻找调用位置的关键是分析**调用栈**，调用位置是在调用栈中**当前正在执行函数**的**前一个**调用中
+    ```javascript
+    function baz() {
+        // 当前调用栈是：baz
+        // 因此，当前调用位置是全局作用域
+        console.log( "baz" );
+        bar(); // <-- bar 的调用位置
+    }
+    function bar() {
+        // 当前调用栈是 baz -> bar
+        // 因此，当前调用位置在 baz 中
+        console.log( "bar" );
+        foo(); // <-- foo 的调用位置
+    }
+    function foo() {
+        // 当前调用栈是 baz -> bar -> foo
+        // 因此，当前调用位置在 bar 中
+        console.log( "foo" );
+    }
+    baz(); // <-- baz 的调用位置
+    ```
+
+### 绑定规则
+1.  绑定规则：是在确定了函数的调用位置之后，用于判断满足哪一条绑定规则，当多条规则同时满足时，规则之间又有优先级
+2.  规则一：默认绑定，this指向全局对象
+    - 独立函数调用，这条规则可以看作是无法应用其他规则时的默认规则
+        ```javascript
+        function foo() { 
+            console.log( this.a );
+        }
+        var a = 2;
+        foo(); // 2
+        ```
+    - 声明在全局作用域中的变量（`var a = 2`）就是全局对象的一个同名属性
+    - 上述代码中，函数调用时应用了this的默认绑定，因此this指向全局对象
+    - `foo`函数是直接使用不带任何修饰的函数引用进行调用的，只能使用**默认绑定**
+    - 在**严格模式**下，全局对象将无法使用默认绑定，因此this会绑定到undefined
+        ```javascript
+        function foo() { 
+            "use strict";
+            console.log( this.a ); 
+        }
+        var a = 2;
+        foo(); // TypeError: this is undefined
+        ```
+    - 注意：只有在**非严格模式下**，默认绑定才能绑定到**全局对象**；而**严格模式下**，this绑定**与调用位置无关**
+        ```javascript
+        function foo() { 
+            console.log( this.a );
+        }
+        var a = 2;
+        (function(){ 
+            "use strict";
+            foo(); // 2 
+        })();
+        ```
+        - 上述代码`foo`是非严格模式，所以应用默认规则，this绑定到全局对象，因此输出2
+3.  隐式绑定：函数中的this会绑定在被调用位置的上下文对象
+    - 函数的调用位置会使用上下文对象来引用函数，该函数被调用时的对象拥有或包含
+        ```javascript
+        function foo() { 
+            console.log( this.a );
+        }
+        var obj = { 
+            a: 2,
+            foo: foo 
+        };
+        obj.foo(); // 2
+        ```
+        - 上述代码函数`foo`中的this会被绑定到`obj`上下文对象
+    - 对象属性引用链中只有最后一层会影响调用位置
+        ```javascript
+        function foo() { 
+            console.log( this.a );
+        }
+        var obj2 = { 
+            a: 42,
+            foo: foo 
+        };
+        var obj1 = { 
+            a: 2,
+            obj2: obj2 
+        };
+        obj1.obj2.foo(); // 42
+        ```
+        - 在对象属性的引用链中`obj1.obj2`，`obj2`位于最后一层，所以`foo`中的this绑定到`obj2`
+    - 隐式丢失
+        **被隐式绑定的函数**会丢失绑定对象，然后会应用**默认绑定**，把this绑定到全局对象或undefined
+        ```javascript
+        function foo() { 
+            console.log( this.a );
+        }
+        var obj = { 
+            a: 2,
+            foo: foo 
+        };
+        var bar = obj.foo; // 函数别名！
+        var a = "oops, global"; // a 是全局对象的属性
+        bar(); // "oops, global"
+        ```
+        - 上述代码中，虽然`bar`变量与`obj.foo`是同一个引用。但是在赋值过程中仅仅将`foo`函数本身引用，`bar()`其实是一个**不带有任何修饰的函数调用**，从而应用了默认绑定
+        ```javascript
+        function foo() { 
+            console.log( this.a );
+        }
+        function doFoo(fn) {
+            // fn 其实引用的是 foo
+            fn(); // <-- 调用位置！
+        }
+        var obj = { 
+            a: 2,
+            foo: foo 
+        };
+        var a = "oops, global"; // a 是全局对象的属性
+        doFoo( obj.foo ); // "oops, global"
+        ```
+        - 上述代码是将函数`foo`传入回调函数`doFoo`，参数传递过程其实是**隐式赋值**，就导致了与隐式丢失案例代码1一样的情况
+        - 上述代码传入的函数是自己声明的函数，及时传入内置的函数结果也是一样的
+            ```javascript
+            function foo() { 
+                console.log( this.a );
+            }
+            var obj = { 
+                a: 2,
+                foo: foo 
+            };
+            var a = "oops, global"; // a 是全局对象的属性
+            setTimeout( obj.foo, 100 ); // "oops, global"
+            ```
+            - 因此回调函数丢失this绑定是非常常见的
+            - 在一些回调函数中，也可能会修改this的绑定。例如：JavaScript库中**事件处理器**常会把回调函数的this**强制绑定到触发事件的DOM元素**上
+4.  显示绑定：将this强制绑定到指定对象上
+    - 隐式绑定的方式是需要在对象内部包含一个指向调用函数的引用属性，才能把this绑定到对象上
+    - 显示绑定可以帮助我们**不在对象内部包含函数引用**，而在对象上**强制调用函数**
+    - JavaScript中的函数可以使用`call(...)`与`apply(...)`进行显示绑定
+        ```javascript
+        function foo() { 
+            console.log( this.a );
+        }
+        var obj = { 
+            a:2
+        };
+        foo.call( obj ); // 2
+        ```
+        - 上述代码通过`call`显示绑定this到`obj`上
+        - 如果传入的是原始值（字符串类型、布尔类型或者数字类型）来当作this的绑定对象，这个原始值会被转换成它的对象形式（`new String(..)`、`new Boolean(..)`或者`new Number(..)`），这种方式被称为**装箱**
+        - 但显示绑定不能解决绑定丢失的问题
+    - 解决绑定丢失问题的方案：
+        1. 硬绑定可以解决绑定丢失问题
+            ```javascript
+            function foo() { 
+                console.log( this.a );
+            }
+            var obj = { 
+                a:2
+            };
+            var bar = function() {
+                foo.call( obj );
+            };
+            bar(); // 2
+            setTimeout( bar, 100 ); // 2
+            // 硬绑定的 bar 不可能再修改它的 this
+            bar.call( window ); // 2
+            ```
+            - 上述代码对`foo`进行了硬绑定
+            - 硬绑定是因为将`foo`包裹在`bar`函数内，在内部总是显式地绑定this到`obj`对象，这样即使任何情况调用`bar`，总会在执行`bar`时手动将this绑定到`obj`
+            - 硬绑定的特点是创建一个**包裹函数**，传入所有的参数并返回接收到的所有值
+                ```javascript
+                function foo(something) { 
+                    console.log( this.a, something ); 
+                    return this.a + something;
+                }
+                var obj = { 
+                    a:2
+                };
+                var bar = function() {
+                    return foo.apply( obj, arguments );
+                };
+                var b = bar( 3 ); // 2 3
+                console.log( b ); // 5
+                ```
+                - 函数定义时没有指定形参, 调用时仍然可以向其传递参数,  通过默认参数arguments获取, arguments是一个伪数组, 用来获取实参列表
+            - 硬绑定的变形，创建可重复使用的辅助函数
+                ```javascript
+                function foo(something) { 
+                    console.log( this.a, something ); 
+                    return this.a + something;
+                }
+                // 简单的辅助绑定函数
+                function bind(fn, obj) { 
+                    return function() {
+                        return fn.apply( obj, arguments ); 
+                    };
+                }
+                var obj = { 
+                    a:2
+                };
+                var bar = bind( foo, obj ); 
+                var b = bar( 3 ); // 2 3
+                console.log( b ); // 5
+                ```
+                - 这里创建了一个`bind`函数用于对函数中的this进行硬绑定
+                - 上述手动创建硬绑定函数的方法在ES5中有`Function.prototype.bind`内置方法可直接实现`var bar = foo.bind( obj );`，`bind()`会返回一个硬编码的新函数，把传递的参数设置为this的上下文
+        2.  API调用的“上下文”
+            ```javascript
+            function foo(el) { 
+                console.log( el, this.id );
+            }
+            var obj = {
+                id: "awesome"
+            };
+            // 调用 foo(..) 时把 this 绑定到 obj
+            [1, 2, 3].forEach( foo, obj );
+            // 1 awesome 2 awesome 3 awesome
+            ```
+            - 上述代码`forEach`函数第一个参数是一个回调函数，第二个参数就是用于给回调函数内的this绑定的对象
+            - 这些函数实际上就是通过`call(..)`或者`apply(..)`实现了显式绑定
