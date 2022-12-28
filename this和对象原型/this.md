@@ -1,7 +1,7 @@
 <!--
  * @Author: jiaminghui
  * @Date: 2022-12-07 20:46:41
- * @LastEditTime: 2022-12-10 22:32:30
+ * @LastEditTime: 2022-12-28 21:54:33
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\this和对象原型\this.md
  * @Description: 
@@ -92,7 +92,7 @@
         ```
         - 具名函数，在它内部可以使用函数名称（`foo`）来引用自身
         - 匿名函数，无法从函数内部引用自身。唯一可以引用自身的匿名函数方式：`arguments.callee`，但这种方式已经被弃用
-    - 可以引用函数对象，就可以实现利用函数对象的属性计数了（``）
+    - 可以引用函数对象，就可以实现利用函数对象的属性计数了
         ```javascript
         function foo(num) {
             console.log( "foo: " + num );
@@ -149,7 +149,7 @@
         }
         foo(); // ReferenceError: a is not defined
         ```
-        - `this.bar();`是错误的，争取的方式就是直接调用`bar()`，直接使用词法引用标识符
+        - `this.bar();`是错误的，正确的方式就是直接调用`bar()`，直接使用词法引用标识符
         - 试图通过this联通`foo`与`bar`的词法作用域，从而让`bar`可以访问`foo`作用域里的变量a是不可能的。因为不能使用this来引用一个词法作用域内部的东西
 
 ### this到底是什么
@@ -280,7 +280,7 @@
         doFoo( obj.foo ); // "oops, global"
         ```
         - 上述代码是将函数`foo`传入回调函数`doFoo`，参数传递过程其实是**隐式赋值**，就导致了与隐式丢失案例代码1一样的情况
-        - 上述代码传入的函数是自己声明的函数，及时传入内置的函数结果也是一样的
+        - 上述代码传入的函数是自己声明的函数，即使传入内置的函数结果也是一样的
             ```javascript
             function foo() { 
                 console.log( this.a );
