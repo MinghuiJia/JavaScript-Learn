@@ -1,9 +1,9 @@
 <!--
  * @Author: jiaminghui
  * @Date: 2022-12-27 22:03:22
- * @LastEditTime: 2022-12-27 22:54:55
+ * @LastEditTime: 2022-12-30 20:06:10
  * @LastEditors: jiaminghui
- * @FilePath: \JavaScript_Learn\this和对象原型\附录-ES6中的class.md
+ * @FilePath: \JavaScript_Learn\this和对象原型\附录-ES6中的Class.md
  * @Description: 
 -->
 # ES6中的Class学习
@@ -12,31 +12,31 @@
 ```javascript
 class Widget { 
  constructor(width,height) {
- this.width = width || 50; 
- this.height = height || 50; 
- this.$elem = null;
+    this.width = width || 50; 
+    this.height = height || 50; 
+    this.$elem = null;
  }
  render($where){
- if (this.$elem) { 
- this.$elem.css( {
- width: this.width + "px",
- height: this.height + "px" 
- } ).appendTo( $where );
- } 
+    if (this.$elem) { 
+        this.$elem.css( {
+            width: this.width + "px",
+            height: this.height + "px" 
+        } ).appendTo( $where );
+    } 
  }
 }
 class Button extends Widget { 
  constructor(width,height,label) {
- super( width, height );
- this.label = label || "Default";
- this.$elem = $( "<button>" ).text( this.label );
+    super( width, height );
+    this.label = label || "Default";
+    this.$elem = $( "<button>" ).text( this.label );
  }
  render($where) {
- super( $where );
- this.$elem.click( this.onClick.bind( this ) ); 
+    super( $where );
+    this.$elem.click( this.onClick.bind( this ) ); 
  }
  onClick(evt) {
- console.log( "Button '" + this.label + "' clicked!" );
+    console.log( "Button '" + this.label + "' clicked!" );
  } 
 }
 ```
@@ -94,7 +94,7 @@ class Button extends Widget {
             this.id = id;
         }
         id() {
-        console.log( "Id: " + id );
+            console.log( "Id: " + id );
         }
     } 
     var c1 = new C( "c1" );
