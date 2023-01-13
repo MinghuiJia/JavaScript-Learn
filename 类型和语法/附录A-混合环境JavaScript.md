@@ -1,7 +1,7 @@
 <!--
  * @Author: jiaminghui
  * @Date: 2023-01-09 21:46:54
- * @LastEditTime: 2023-01-09 22:43:14
+ * @LastEditTime: 2023-01-13 21:05:14
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\类型和语法\附录A-混合环境JavaScript.md
  * @Description: 
@@ -59,7 +59,7 @@
     ```javascript
     // Netscape 4没有Array.push
     Array.prototype.push = function(item) {
-        this[this.length-1] = item;
+        this[this.length] = item;
     };
     ```
     - 代码没有问题，但是`Array.prototype.push`随后被加入到了规范中，并且和这段代码不兼容。标准的`push(..)`可以一次加入多个值
@@ -68,7 +68,7 @@
     if (!Array.prototype.push) {
         // Netscape 4没有Array.push
         Array.prototype.push = function(item) {
-            this[this.length-1] = item;
+            this[this.length] = item;
         };
     }
     ```
@@ -87,7 +87,7 @@
 4.  对于将来可能成为标准的功能，按照大部分人赞同的方式来预先实现能和将来的标准兼容的polyfill，我们称为prollyfill（probably fill）
 
 ## `<script>`
-1.  绝大部分网站/Web应用程序的代码都存放在多个文件中，通常可以在网页中使用`<scriopt src=..></script>`来加载这些文件，或者使用`<script> .. </script>`来包含内联代码（inline-code）
+1.  绝大部分网站/Web应用程序的代码都存放在多个文件中，通常可以在网页中使用`<script src=..></script>`来加载这些文件，或者使用`<script> .. </script>`来包含内联代码（inline-code）
     - 这些文件和内联代码是相互独立的JavaScript程序，但它们共享global对象（在浏览器中则是window），也就是说这些文件中的代码在共享的命名空间中运行，并相互交互。如果某个script中定义了函数`foo()`，后面的script代码就可以访问并调用`foo()`
     - 但是全局变量作用域的提升机制在这些边界中不适用，因此无论是`<script> .. </script>`还是`<script src=..></script>`，下面的代码都无法运行（因为`foo()`还未被声明）
         ```javascript
@@ -117,7 +117,7 @@
         } setTimeout( foo, 1000 );";
     document.body.appendChild( el );
     ```
-    - 如果将`el.src`的值设置为一个文件URL，就可以通过`<scrscript=..></script>`动态加载外部文件
+    - 如果将`el.src`的值设置为一个文件URL，就可以通过`<script src=..></script>`动态加载外部文件
 3.  内联代码和外部文件中的代码之间有一个区别，即在内联代码中不可以出现`</script>`字符串，一旦出现即被视为代码块结束
     ```javascript
     <script>

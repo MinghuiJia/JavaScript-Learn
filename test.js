@@ -1,7 +1,7 @@
 /*
  * @Author: jiaminghui
  * @Date: 2023-01-04 22:31:49
- * @LastEditTime: 2023-01-12 21:45:30
+ * @LastEditTime: 2023-01-13 21:00:12
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\test.js
  * @Description: 
@@ -43,3 +43,12 @@ console.log(obj111 < obj222);
 console.log(obj111 <= obj222);
 console.log(obj111 > obj222);
 console.log(obj111 >= obj222);
+
+// Array.prototype.push = function(item) {
+//     this[this.length-1] = item;
+// };
+
+var temp_arr = new Array(1,2,3);
+console.log(temp_arr.length)
+temp_arr[temp_arr.length] = 5;
+console.log(temp_arr);
