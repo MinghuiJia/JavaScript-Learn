@@ -1,7 +1,7 @@
 <!--
  * @Author: jiaminghui
  * @Date: 2023-01-25 11:13:31
- * @LastEditTime: 2023-01-25 17:47:46
+ * @LastEditTime: 2023-01-26 11:31:05
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\异步和性能\Promise.md
  * @Description: 
@@ -261,6 +261,164 @@
         ```
         - 目前你可以看到，p1不是用立即值而是用另一个promise p3决议，后者本身决议为值"B"。规定的行为是把p3展开到p1，但是是异步地展开。所以，在异步任务队列中，p1的回调排在p2的回调之后
         - 要避免这样的细微区别带来的噩梦，你永远都不应该依赖于不同Promise间回调的顺序和调度
+4.  回调未调用
+    - 首先，没有任何东西（甚至JavaScript错误）能阻止Promise向你通知它的决议（如果它决议了的话）。如果你对一个Promise注册了一个完成回调和一个拒绝回调，那么Promise在决议时总是会调用其中的一个。如果你的回调函数本身包含JavaScript错误，那可能就会看不到你期望的结果，但实际上回调还是被调用了，并且在回调出错时还会得到通知
+    - 如果Promise本身永远不被决议，Promise也提供了解决方案，其使用了一种称为竞态的高级抽象机制
+        ```javascript
+        // 用于超时一个Promise的工具
+        function timeoutPromise(delay) { 
+            return new Promise( function(resolve,reject){ 
+                setTimeout( function(){ 
+                    reject( "Timeout!" ); 
+                }, delay ); 
+            } ); 
+        } 
+        // 设置foo()超时
+        Promise.race( [ 
+            foo(), // 试着开始foo() 
+            timeoutPromise( 3000 ) // 给它3秒钟
+        ] ) 
+        .then( 
+            function(){ 
+                // foo(..)及时完成！
+            }, 
+            function(err){ 
+                // 或者foo()被拒绝，或者只是没能按时完成
+                // 查看err来了解是哪种情况
+            } 
+        ); 
+        ```
+        - 关于这个Promise超时模式还有更多细节需要考量
+        - 很重要的一点是，我们可以保证一个`foo()`有一个输出信号，防止其永久挂住程序
+5.  调用次数过少或过多
+    - 根据定义，回调被调用的正确次数应该是1。“过少”的情况就是调用0次，和前面解释过的“未被”调用是同一种情况
+    - Promise的定义方式使得它只能被决议一次。如果出于某种原因，Promise创建代码试图调用`resolve(..)`或`reject(..)`多次，或者试图两者都调用，那么这个Promise将只会接受第一次决议，并默默地忽略任何后续调用。由于Promise只能被决议一次，所以任何通过`then(..)`注册的（每个）回调就只会被调用一次
+    - 当然，如果你把同一个回调注册了不止一次（比如`p.then(f); p.then(f);`），那它被调用的次数就会和注册次数相同
+    - 这种机制可以使得在动态请求数据（根据滚动条滑动）时防止多次请求数据，或使用事件监听+`setTimeout`来防止多次响应
+6.  未能传递参数/环境值
+    - Promise至多只能有一个决议值（完成或拒绝），如果你没有用任何值显式决议，那么这个值就是undefined。不管这个值是什么，无论当前或未来，它都会被传给所有注册的（且适当的完成或拒绝）回调
+    - 如果使用多个参数调用`resovle(..)`或者`reject(..)`，第一个参数之后的所有参数都会被默默忽略。这看起来似乎违背了我们前面介绍的保证，但实际上并没有，因为这是对Promise机制的无效使用。对于这组API的其他无效使用（比如多次重复调用`resolve(..)`），也是类似的保护处理，所以这里的Promise行为是一致的。如果要传递多个值，你就必须要把它们封装在单个值中传递，比如通过一个数组或对象
+    -  对环境来说，JavaScript中的函数总是保持其定义所在的作用域的闭包，所以它们当然可以继续访问你提供的环境状态。当然，对于只用回调的设计也是这样，因此这并不是Promise特有的优点
+7.  吞掉错误或异常
+    - 如果拒绝一个Promise并给出一个理由（也就是一个出错消息），这个值就会被传给拒绝回调
+    - 如果在Promise的创建过程中或在查看其决议结果过程中的任何时间点上出现了一个JavaScript 异常错误，比如一个TypeError或ReferenceError，那这个异常就会被捕捉，并且会使这个Promise被拒绝
+        ```javascript
+        var p = new Promise( function(resolve,reject){ 
+            foo.bar(); // foo未定义，所以会出错！
+            resolve( 42 ); // 永远不会到达这里 :( 
+        } ); 
+        p.then( 
+            function fulfilled(){ 
+                // 永远不会到达这里 :( 
+            }, 
+            function rejected(err){ 
+                // err将会是一个TypeError异常对象来自foo.bar()这一行
+            } 
+        ); 
+        ```
+        - `foo.bar()`中发生的JavaScript异常导致了Promise拒绝，你可以捕捉并对其作出响应
+        - 这是一个重要的细节，因为其有效解决了另外一个潜在的Zalgo风险，即出错可能会引起同步响应，而不出错则会是异步的。Promise甚至把JavaScript异常也变成了异步行为，进而极大降低了竞态条件出现的可能
+    - 如果Promise完成后在查看结果时（`then(..)`注册的回调中）出现了JavaScript异常错误会怎样呢？即使这些异常不会被丢弃，但你会发现，对它们的处理方式还是有点出出乎意料
+        ```javascript
+        var p = new Promise( function(resolve,reject){ 
+            resolve( 42 ); 
+        } ); 
+        p.then( 
+            function fulfilled(msg){ 
+                foo.bar(); 
+                console.log( msg ); // 永远不会到达这里 :( 
+            }, 
+            function rejected(err){ 
+                // 永远也不会到达这里 :( 
+            } 
+        ); 
+        ```
+        -  这看起来像是`foo.bar()`产生的异常真的被吞掉了，而实际上`p.then(..)`调用本身返回了另外一个promise，正是这个promise将会因TypeError异常而被拒绝
+        - 为什么它不是简单地调用我们定义的错误处理函数呢？这样的话就违背了Promise的一条基本原则，即Promise一旦决议就不可再变。p已经完成为值42，所以之后查看p的决议时，并不能因为出错就把p再变为一个拒绝
+        - 此外，假如这个promise p有多个`then(..)`注册的回调的话，有些回调会被调用，而有些则不会，情况会非常不透明，难以解释
+8.  是可信任的Promise吗
+    - Promise并没有完全摆脱回调。它们只是改变了传递回调的位置。我们并不是把回调传递给`foo(..)`，而是从`foo(..)`得到某个东西（外观上看是一个真正的Promise），然后把回调传给这个东西
+    - 在原生ES6 Promise实现中的解决方案——解决确定返回的这个东西实际上就够确定返回的这个东西实际上就，就是`Promise.resolve(..)`
+        - 如果向`Promise.resolve(..)`传递一个非Promise、非thenable的立即值，就会得到一个用这个值填充的promise
+            ```javascript
+            var p1 = new Promise( function(resolve,reject){ 
+                resolve( 42 ); 
+            } ); 
+            var p2 = Promise.resolve( 42 );
+            ```
+            - promise p1和promise p2的行为是完全一样的
+        - 如果向`Promise.resolve(..)`传递一个真正的Promise，就只会返回同一个promise
+            ```javascript
+            var p1 = Promise.resolve( 42 ); 
+            var p2 = Promise.resolve( p1 ); 
+            p1 === p2; // true
+            ```
+        -  如果向`Promise.resolve(..)`传递了一个非Promise的thenable值，前者就会试图展开这个值，而且展开过程会持续到提取出一个具体的非类Promise的最终值
+            ```javascript
+            var p = { 
+                then: function(cb) { 
+                    cb( 42 ); 
+                } 
+            }; 
+            // 这可以工作，但只是因为幸运而已
+            p 
+            .then( 
+                function fulfilled(val){ 
+                    console.log( val ); // 42 
+                }, 
+                function rejected(err){ 
+                    // 永远不会到达这里
+                } 
+            ); 
+            ```
+            - 这个p是一个thenable，但并不是一个真正的Promise。幸运的是，和绝大多数值一样，它是可追踪的
+        - 但是，如果得到的是如下这样的值
+            ```javascript
+            var p = { 
+                then: function(cb,errcb) { 
+                    cb( 42 ); 
+                    errcb( "evil laugh" ); 
+                } 
+            }; 
+            p 
+            .then( 
+                function fulfilled(val){ 
+                    console.log( val ); // 42 
+                }, 
+                function rejected(err){ 
+                    // 啊，不应该运行！
+                    console.log( err ); // 邪恶的笑
+                } 
+            );
+            ```
+            - 这个p是一个thenable，但是其行为和promise并不完全一致
+            - 不管是哪种情况，它都是不可信的
+        - 尽管如此，我们还是都可以把这些版本的p传给`Promise.resolve(..)`，然后就会得到期望中的规范化后的安全结果
+            ```javascript
+            Promise.resolve( p ) 
+            .then( 
+                function fulfilled(val){ 
+                    console.log( val ); // 42 
+                }, 
+                function rejected(err){ 
+                    // 永远不会到达这里
+                } 
+            ); 
+            ```
+            - `Promise.resolve(..)`可以接受任何thenable，将其解封为它的非thenable值。从`Promise.resolve(..)`得到的是一个真正的Promise，是一个可以信任的值
+        - 假设我们要调用一个工具`foo(..)`，且并不确定得到的返回值是否是一个可信任的行为良好的Promise，但我们可以知道它至少是一个thenable。`Promise.resolve(..)`提供了可信任的Promise封装工具，可以链接使用
+            ```javascript
+            // 不要只是这么做：
+            foo( 42 ) 
+            .then( function(v){ 
+                console.log( v ); 
+            } ); 
+            // 而要这么做：
+            Promise.resolve( foo( 42 ) ) 
+            .then( function(v){ 
+                console.log( v ); 
+            } ); 
+            ```
 
 
 
