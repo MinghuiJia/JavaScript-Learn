@@ -1,7 +1,7 @@
 <!--
  * @Author: jiaminghui
  * @Date: 2023-01-25 11:13:31
- * @LastEditTime: 2023-01-26 11:31:05
+ * @LastEditTime: 2023-01-27 12:22:23
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\异步和性能\Promise.md
  * @Description: 
@@ -419,6 +419,252 @@
                 console.log( v ); 
             } ); 
             ```
+
+### 链式流
+1.  我们可以把多个Promise连接到一起以表示一系列异步步骤。这种方式可以实现的关键在于以下两个Promise固有行为特性
+    - 每次你对Promise调用`then(..)`，它都会创建并返回一个新的Promise，我们可以将其链接起来
+    - 不管从`then(..)`调用的完成回调（第一个参数）返回的值是什么，它都会被自动设置为被链接Promise（第一点中的）的完成
+        ```javascript
+        var p = Promise.resolve( 21 ); 
+        var p2 = p.then( function(v){ 
+            console.log( v ); // 21 
+            // 用值42填充p2
+            return v * 2; 
+        } ); 
+        // 连接p2 
+        p2.then( function(v){ 
+            console.log( v ); // 42 
+        } ); 
+        ```
+        - 我们通过返回`v * 2`(即42)，完成了第一个调用`then(..)`创建并返回的promise p2。p2的`then(..)`调用在运行时会从`return v * 2`语句接受完成值。当然，`p2.then(..)`又创建了另一个新的promise，可以用变量p3存储
+        - 如果必须创建一个临时变量p2（或p3等），还是有一点麻烦的。我们很容易把这些链接到一起
+            ```javascript
+            var p = Promise.resolve( 21 ); 
+            p 
+            .then( function(v){ 
+                console.log( v ); // 21 
+                // 用值42完成连接的promise 
+                return v * 2; 
+            } ) 
+            // 这里是链接的promise 
+            .then( function(v){ 
+                console.log( v ); // 42 
+            } ); 
+            ```
+            - 现在第一个`then(..)`就是异步序列中的第一步，第二个`then(..)`就是第二步
+        - 如果需要步骤2等待步骤1异步来完成一些事情，我们使用了立即返回return语句，这会立即完成链接的promise。使Promise序列真正能够在每一步有异步能力的关键是，传递给`Promise.resolve(..)`的是一个Promise或thenable而不是最终值时的运作方式。`Promise.resolve(..)`会直接返回接收到的真正Promise，或展开接收到的thenable值，并在持续展开thenable的同时递归地前进
+        - 从完成（或拒绝）处理函数返回thenable或者Promise的时候也会发生同样的展开
+            ```javascript
+            var p = Promise.resolve( 21 ); 
+            p.then( function(v){ 
+                console.log( v ); // 21 
+                // 创建一个promise并将其返回
+                return new Promise( function(resolve,reject){ 
+                // 用值42填充
+                resolve( v * 2 ); 
+                } ); 
+            } ) 
+            .then( function(v){ 
+                console.log( v ); // 42 
+            } );
+            ```
+            - 虽然我们把42封装到了返回的promise中，但它仍然会被展开并最终成为链接的promise的决议，因此第二个`then(..)`得到的仍然是42
+        - 如果我们向封装的promise引入异步，一切都仍然会同样工作
+            ```javascript
+            var p = Promise.resolve( 21 ); 
+            p.then( function(v){ 
+                console.log( v ); // 21
+                // 创建一个promise并返回
+                return new Promise( function(resolve,reject){ 
+                    // 引入异步！
+                    setTimeout( function(){ 
+                        // 用值42填充
+                        resolve( v * 2 ); 
+                    }, 100 ); 
+                } ); 
+            } ) 
+            .then( function(v){ 
+                // 在前一步中的100ms延迟之后运行
+                console.log( v ); // 42 
+            } );
+            ```
+            - 现在我们可以构建这样一个序列：不管我们想要多少个异步步骤，每一步都能够根据需要等待下一步（或者不等！）
+            - 当然，在这些例子中，一步步传递的值是可选的。如果不显式返回一个值，就会隐式返回undefined，并且这些promise仍然会以同样的方式链接在一起。这样，每个Promise的决议就成了继续下一个步骤的信号
+    - 为了进一步阐释链接，让我们把延迟Promise创建（没有决议消息）过程一般化到一个工具中，以便在多个步骤中复用
+        ```javascript
+        function delay(time) { 
+            return new Promise( function(resolve,reject){ 
+                setTimeout( resolve, time ); 
+            } ); 
+        } 
+        delay( 100 ) // 步骤1 
+        .then( function STEP2(){ 
+            console.log( "step 2 (after 100ms)" ); 
+            return delay( 200 ); 
+        } ) 
+        .then( function STEP3(){ 
+            console.log( "step 3 (after another 200ms)" ); 
+        } ) 
+        .then( function STEP4(){ 
+            console.log( "step 4 (next Job)" ); 
+            return delay( 50 ); 
+        } ) 
+        .then( function STEP5(){ 
+            console.log( "step 5 (after another 50ms)" ); 
+        } ) 
+        ... 
+        ```
+        - 调用`delay(200)`创建了一个将在200ms后完成的promise，然后我们从第一个`then(..)`完成回调中返回这个promise，这会导致第二个`then(..)`的promise等待这个200ms的promise
+    - 没有消息传递的延迟序列对于Promise流程控制来说并不是一个很有用的示例。我们来考虑如下这样一个更实际的场景
+        ```javascript
+        // 假定工具ajax( {url}, {callback} )存在
+        // Promise-aware ajax 
+        function request(url) { 
+            return new Promise( function(resolve,reject){ 
+                // ajax(..)回调应该是我们这个promise的resolve(..)函数
+                ajax( url, resolve ); 
+            } ); 
+        } 
+
+        request( "http://some.url.1/" ) 
+        .then( function(response1){ 
+            return request( "http://some.url.2/?v=" + response1 ); 
+        } ) 
+        .then( function(response2){ 
+            console.log( response2 ); 
+        } ); 
+        ```
+        - 我们首先定义一个工具`request(..)`，用来构造一个表示`ajax(..)`调用完成的promise
+        - 开发者常会遇到这样的情况：他们想要通过本身并不支持Promise的工具（就像这里的`ajax(..)`，它接收的是一个回调）实现支持Promise的异步流程控制。虽然原生ES6 Promise机制并不会自动为我们提供这个模式，但所有实际的Promise库都会提供。通常它们把这个过程称为“提升”“promise化”或者其他类似的名称
+        - 利用返回Promise的`request(..)`，我们通过使用第一个URL调用它来创建链接中的第一步，并且把返回的promise与第一个`then(..)`链接起来
+        - response1一返回，我们就使用这个值构造第二个URL，并发出第二个`request(..)`调用。第二个`request(..)`的promise返回，以便异步流控制中的第三步等待这个Ajax调用完成
+        - 最后，response2一返回，我们就立即打出结果
+        - 我们构建的这个Promise链不仅是一个表达多步异步序列的流程控制，还是一个从一个步骤到下一个步骤传递消息的消息通道
+        - 如果这个Promise链中的某个步骤出错了怎么办？错误和异常是基于每个Promise的，这意味着可能在链的任意位置捕捉到这样的错误，而这个捕捉动作在某种程度上就相当于在这一位置将整条链“重置”回了正常运作
+            ```javascript
+            // 步骤1：
+            request( "http://some.url.1/" ) 
+            // 步骤2：
+            .then( function(response1){ 
+                foo.bar(); // undefined，出错！
+                // 永远不会到达这里
+                return request( "http://some.url.2/?v=" + response1 ); 
+            } ) 
+            // 步骤3：
+            .then( 
+                function fulfilled(response2){ 
+                // 永远不会到达这里
+            }, 
+            // 捕捉错误的拒绝处理函数
+            function rejected(err){ 
+                console.log( err ); 
+                // 来自foo.bar()的错误TypeError 
+                return 42; 
+            } 
+            ) 
+            // 步骤4：
+            .then( function(msg){ 
+                console.log( msg ); // 42 
+            } ); 
+            ```
+            - 第2步出错后，第3步的拒绝处理函数会捕捉到这个错误。拒绝处理函数的返回值（这段代码中是42），如果有的话，会用来完成交给下一个步骤（第4步）的promise，这样，这个链现在就回到了完成状态
+    - 如果你调用promise的`then(..)`，并且只传入一个完成处理函数，一个默认拒绝处理函数就会顶替上来
+        ```javascript
+        var p = new Promise( function(resolve,reject){ 
+            reject( "Oops" ); 
+        } ); 
+        var p2 = p.then( 
+            function fulfilled(){ 
+                // 永远不会达到这里
+            } 
+            // 假定的拒绝处理函数，如果省略或者传入任何非函数值
+            // function(err) { 
+            // throw err; 
+            // } 
+        ); 
+        ```
+        - 默认拒绝处理函数只是把错误重新抛出，这最终会使得p2（链接的promise）用同样的错误理由拒绝。从本质上说，这使得错误可以继续沿着Promise链传播下去，直到遇到显式定义的拒绝处理函数
+    - 如果没有给`then(..)`传递一个适当有效的函数作为完成处理函数参数，还是会有作为替代的一个默认处理函数
+        ```javascript
+        var p = Promise.resolve( 42 ); 
+        p.then( 
+            // 假设的完成处理函数，如果省略或者传入任何非函数值
+            // function(v) { 
+            // return v; 
+            // } 
+            null, 
+            function rejected(err){ 
+            // 永远不会到达这里
+            } 
+        ); 
+        ```
+        - 你可以看到，默认的完成处理函数只是把接收到的任何传入值传递给下一个步骤（Promise）而已
+        - `then(null,function(err){ .. })`这个模式——只处理拒绝（如果有的话），但又把完成值传递下去——有一个缩写形式的API：`catch(function(err){ .. })`
+2.  让我们来简单总结一下使链式流程控制可行的Promise固有特性
+    - 调用Promise的`then(..)`会自动创建一个新的Promise从调用返回
+    - 在完成或拒绝处理函数内部，如果返回一个值或抛出一个异常，新返回的（可链接的）Promise就相应地决议
+    - 如果完成或拒绝处理函数返回一个Promise，它将会被展开，这样一来，不管它的决议值是什么，都会成为当前`then(..)`返回的链接Promise的决议值
+3.  相对于第2章讨论的回调的一团乱麻，链接的顺序表达已经是一个巨大的进步。但是，仍然有大量的重复样板代码（`then(..)`以及`function({ ... }`）
+4.  术语：决议、完成以及拒绝
+    ```javascript
+    var p = new Promise( function(X,Y){ 
+        // X()用于完成
+        // Y()用于拒绝
+    } );
+    ```
+    - 提供了两个回调（称为X和Y）。第一个通常用于标识Promise已经完成，第二个总是用于标识Promise被拒绝。通常表明这两个函数还有精确的命名，这会影响开发者对代码的认识
+    - 第二个参数名称很容易决定。几乎所有的文献都将其命名为`reject(..)`，因为这就是它真实的（也是唯一的！）工作
+    - 但是，第一个参数就有一些模糊了，Promise文献通常将其称为`resolve(..)`。这个词显然和决议（resolution）有关，而决议在各种文献（包括本书）中是用来描述“为Promise设定最终值/状态”。前面我们已经多次使用“Promise决议”来表示完成或拒绝Promise。但是，如果这个参数是用来特指完成这个Promise，那为什么不用使用`fulfill(..)`来代替`resolve(..)`以求表达更精确。原因是：
+        ```javascript
+        var fulfilledPr = Promise.resolve( 42 ); 
+        var rejectedPr = Promise.reject( "Oops" );
+        ```
+        - `Promise.resolve(..)`创建了一个决议为输入值的Promise。在这个例子中，42是一个非Promise、非thenable的普通值，所以完成后的promise fullfilledPr是为值42创建的。`Promise.reject("Oops")`创建了一个被拒绝的promise rejectedPr，拒绝理由为"Oops"
+
+        ```javascript
+        var rejectedTh = { 
+            then: function(resolved,rejected) { 
+                rejected( "Oops" ); 
+            } 
+        }; 
+        var rejectedPr = Promise.resolve( rejectedTh );
+        ```
+        - 单词resolve（比如在`Promise.resolve(..)`中）如果用于表达结果可能是完成也可能是拒绝的话，既没有歧义，而且也确实更精确
+        - `Promise.resolve(..)`会将传入的真正Promise直接返回，对传入的thenable则会展开。如果这个thenable展开得到一个拒绝状态，那么从`Promise.resolve(..)`返回的Promise实际上就是这同一个拒绝状态
+    - `Promise(..)`构造器的第一个参数回调会展开thenable（和`Promise.resolve(..)`一样）或真正的Promise
+        ```javascript
+        var rejectedPr = new Promise( function(resolve,reject){ 
+            // 用一个被拒绝的promise完成这个promise 
+            resolve( Promise.reject( "Oops" ) ); 
+        } ); 
+        rejectedPr.then( 
+            function fulfilled(){ 
+                // 永远不会到达这里
+            }, 
+            function rejected(err){ 
+                console.log( err ); // "Oops" 
+            } 
+        );
+        ```
+        - 如果向`reject(..)`传入一个Promise/thenable值，它会把这个值原封不动地设置为拒绝理由。后续的拒绝处理函数接收到的是你实际传给`reject(..)`的那个Promise/thenable，而不是其底层的立即值
+    - 不过，现在我们再来关注一下提供给`then(..)`的回调。它们（在文献和代码中）应该怎么命名呢？我的建议是`fulfilled(..)`和`rejected(..)`
+        ```javascript
+        function fulfilled(msg) { 
+            console.log( msg ); 
+        } 
+        function rejected(err) { 
+            console.error( err ); 
+        } 
+        p.then( 
+            fulfilled, 
+            rejected 
+        ); 
+        ```
+        - 对`then(..)`的第一个参数来说，毫无疑义，总是处理完成的情况，所以不需要使用标识两种状态的术语“resolve”
+        - ES6规范将这两个回调命名为`onFulfilled(..)`和`onRjected(..)`，所以这两个术语很准确
+        
+
+
 
 
 
