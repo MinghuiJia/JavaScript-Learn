@@ -1,7 +1,7 @@
 <!--
  * @Author: jiaminghui
  * @Date: 2023-01-25 11:13:31
- * @LastEditTime: 2023-01-27 12:22:23
+ * @LastEditTime: 2023-01-28 19:14:41
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\异步和性能\Promise.md
  * @Description: 
@@ -663,8 +663,320 @@
         - 对`then(..)`的第一个参数来说，毫无疑义，总是处理完成的情况，所以不需要使用标识两种状态的术语“resolve”
         - ES6规范将这两个回调命名为`onFulfilled(..)`和`onRjected(..)`，所以这两个术语很准确
         
+### 错误处理
+1.  对多数开发者来说，错误处理最自然的形式就是同步的`try..catch`结构。遗憾的是，它只能是同步的，无法用于异步代码模式
+    ```javascript
+    function foo() { 
+        setTimeout( function(){ 
+            baz.bar(); 
+        }, 100 ); 
+    } 
+    try { 
+        foo(); 
+        // 后面从 `baz.bar()` 抛出全局错误
+    } 
+    catch (err) { 
+        // 永远不会到达这里
+    } 
+    ```
+    - `try..catch`当然很好，但是无法跨异步操作工作。也就是说，还需要一些额外的环境支持
+2.  在回调中，一些模式化的错误处理方式已经出现，最值得一提的是`error-first`回调风格
+    ```javascript
+    function foo(cb) { 
+        setTimeout( function(){ 
+            try { 
+                var x = baz.bar(); 
+                cb( null, x ); // 成功！
+            } 
+            catch (err) { 
+                cb( err ); 
+            } 
+        }, 100 ); 
+    } 
+    foo( function(err,val){ 
+        if (err) { 
+            console.error( err ); // 烦 :( 
+        } 
+        else { 
+            console.log( val ); 
+        } 
+    } ); 
+    ```
+    - 只有在`baz.bar()`调用会同步地立即成功或失败的情况下，这里的`try..catch`才能工作。如果`baz.bar()`本身有自己的异步完成函数，其中的任何异步错误都将无法捕捉到
+    - 传给`foo(..)`的回调函数保留第一个参数err，用于在出错时接收到信号。如果其存在的话，就认为出错；否则就认为是成功
+    - 严格说来，这一类错误处理是支持异步的，但完全无法很好地组合。多级error-first回调交织在一起，再加上这些无所不在的if检查语句，都不可避免地导致了回调地狱的风险
+3.  Promise中的错误处理，其中拒绝处理函数被传递给`then(..)`。Promise使用了分离回调（split-callback）风格。一个回调用于完成情况，一个回调用于拒绝情况
+    ```javascript
+    var p = Promise.reject( "Oops" ); 
+    p.then( 
+        function fulfilled(){ 
+            // 永远不会到达这里
+        }, 
+        function rejected(err){ 
+            console.log( err ); // "Oops" 
+        } 
+    ); 
+    ```
+    - 彻底掌握Promise错误处理的各种细微差别常常还是有些难度的
+        ```javascript
+        var p = Promise.resolve( 42 ); 
+        p.then( 
+            function fulfilled(msg){ 
+                // 数字没有string函数，所以会抛出错误
+                console.log( msg.toLowerCase() ); 
+            }, 
+            function rejected(err){ 
+                // 永远不会到达这里
+            } 
+        ); 
+        ```
+        -  如果`msg.toLowerCase()`合法地抛出一个错误（事实确实如此！），但是错误处理函数没有得到通知。这是因为错误处理函数是为promise p准备的，而这个promise已经用值42填充了。promise p是不可变的，所以唯一可以被通知这个错误的promise是从`p.then(..)`返回的那一个，但我们在此例中没有捕捉
+        - Promise的错误处理易于出错。这非常容易造成错误被吞掉，而这极少是出于你的本意
+        - 如果通过无效的方式使用Promise API，并且出现一个错误阻碍了正常的Promise构造，那么结果会得到一个立即抛出的异常，而不是一个被拒绝的Promise。这里是一些错误使用导致Promise构造失败的例子：`new Promise(null)`、`Promise.all()`、`Promise.race(42)`，等等
+4.  绝望的陷阱
+    - Promise错误处理就是一个“绝望的陷阱”设计。默认情况下，它假定你想要Promise状态吞掉所有的错误。如果你忘了查看这个状态，这个错误就会默默地（通常是绝望地）在暗处凋零死掉
+    - 为了避免丢失被忽略和抛弃的Promise错误，一些开发者表示，Promise链的一个最佳实践就是最后总以一个`catch(..)`结束，比如
+        ```javascript
+        var p = Promise.resolve( 42 ); 
+        p.then( 
+            function fulfilled(msg){ 
+                // 数字没有string函数，所以会抛出错误
+                console.log( msg.toLowerCase() ); 
+            } 
+        ) 
+        .catch( handleErrors );
+        ```
+        - 因为我们没有为`then(..)`传入拒绝处理函数，所以默认的处理函数被替换掉了，而这仅仅是把错误传递给了链中的下一个promise。因此，进入p的错误以及p之后进入其决议（就像`msg.toLowerCase()`）的错误都会传递到最后的`handleErrors(..)`
+        - 如果`handleErrors(..)`本身内部也有错误怎么办呢？还有一个没人处理的promise：`catch(..)`返回的那一个。我们没有捕获这个promise的结果，也没有为其注册拒绝处理函数。看起来好像是个无解的问题
+5.  处理未捕获的情况
+    - 有些Promise库增加了一些方法，用于注册一个类似于“全局未处理拒绝”处理函数的东西，这样就不会抛出全局错误，而是调用这个函数。但它们辨识未捕获错误的方法是定义一个某个时长的定时器，比如3秒钟，在拒绝的时刻启动。如果Promise被拒绝，而在定时器触发之前都没有错误处理函数被注册，那它就会假定你不会注册处理函数，进而就是未被捕获错误
+    - 在实际使用中，对很多库来说，这种方法运行良好，因为通常多数使用模式在Promise拒绝和检查拒绝结果之间不会有很长的延迟。但是这种模式可能会有些麻烦，因为3秒这个时间太随意了（即使是经验值），也因为确实有一些情况下会需要Promise在一段不确定的时间内保持其拒绝状态。而且你绝对不希望因为这些误报（还没被处理的未捕获错误）而调用未捕获错误处理函数
+    - 更常见的一种看法是：Promsie应该添加一个`done(..)`函数，从本质上标识Promsie链的结束。`done(..)`不会创建和返回Promise，所以传递给`done(..)`的回调显然不会报告一个并不存在的链接Promise的问题
+        - `done(..)`它的处理方式类似于你可能对未捕获错误通常期望的处理方式：`done(..)`拒绝处理函数内部的任何异常都会被作为一个全局未处理错误抛出（基本上是在开发者终端上）
+            ```javascript
+            var p = Promise.resolve( 42 ); 
+            p.then( 
+                function fulfilled(msg){ 
+                    // 数字没有string函数，所以会抛出错误
+                    console.log( msg.toLowerCase() ); 
+                } 
+            ) 
+            .done( null, handleErrors ); 
+            // 如果handleErrors(..)引发了自身的异常，会被全局抛出到这里
+            ```
+            - 相比没有结束的链接或者任意时长的定时器，这种方案看起来似乎更有吸引力。但最大的问题是，它并不是ES6标准的一部分，所以不管听起来怎么好，要成为可靠的普遍解决方案，它还有很长一段路要走
+    - 浏览器有一个特有的功能是我们的代码所没有的：**它们可以跟踪并了解所有对象被丢弃以及被垃圾回收的时机**。所以，浏览器可以追踪Promise对象。如果在它被垃圾回收的时候其中有拒绝，浏览器就能够确保这是一个真正的未捕获错误，进而可以确定应该将其报告到开发者终端
+6.  成功的坑
+    - 接下来的内容只是理论上的，关于未来的Promise可以变成什么样
+        - 默认情况下，如果在这个时间点上该Promise上还没有注册错误处理函数，Promsie在下一个任务或时间循环tick上（向开发者终端）报告所有拒绝
+        - 如果想要一个被拒绝的Promise在查看之前的某个时间段内保持被拒绝状态，可以调用`defer()`，这个函数优先级高于该Promise的自动错误报告
+    - 如果一个Promise被拒绝的话，默认情况下会向开发者终端报告这个事实（而不是默认为沉默）。可以选择隐式（在拒绝之前注册一个错误处理函数）或者显式（通过`defer()`）禁止这种报告
+        ```javascript
+        var p = Promise.reject( "Oops" ).defer(); 
+        // foo(..)是支持Promise的
+        foo( 42 ) 
+        .then( 
+            function fulfilled(){ 
+                return p; 
+            }, 
+            function rejected(err){ 
+                // 处理foo(..)错误
+            } 
+        ); 
+        ...
+        ```
+        - 创建p的时候，我们知道需要等待一段时间才能使用或查看它的拒绝结果，所以我们就调用`defer()`，这样就不会有全局报告出现。为了便于链接，`defer()`只是返回这同一个promise
+        - 从`foo(..)`返回的promise立刻就被关联了一个错误处理函数，所以它也隐式消除了出错全局报告
+        - 但是，从`then(..)`调用返回的promise没有调用`defer()`，也没有关联错误处理函数，所以如果它（从内部或决议处理函数）拒绝的话，就会作为一个未捕获错误被报告到开发者终端
+        - 这种方案唯一真正的危险是，如果你`defer()`了一个Promise，但之后却没有成功查看或处理它的拒绝结果
 
+### Promise 模式
+Promise有链的顺序模式，但是可以基于Promise构建的异步模式抽象还有很多变体
+1.  `Promise.all([ .. ])`
+    - 在异步序列中（Promise链），任意时刻都只能有一个异步任务正在执行——步骤2只能在步骤1之后，步骤3只能在步骤2之后。但是，如果想要同时执行两个或更多步骤（也就是“并行执行”）
+        - 在经典的编程术语中，门（gate）是这样一种机制要等待两个或更多并行/并发的任务都完成才能继续。它们的完成顺序并不重要，但是必须都要完成，门才能打开并让流程控制继续
+        - 在Promise API中，这种模式被称为`all([ .. ])`
+    - 假定你想要同时发送两个Ajax请求，等它们不管以什么顺序全部完成之后，再发送第三个Ajax请求
+        ```javascript
+        // request(..)是一个Promise-aware Ajax工具
+        // 就像我们在本章前面定义的一样
+        var p1 = request( "http://some.url.1/" ); 
+        var p2 = request( "http://some.url.2/" ); 
+        Promise.all( [p1,p2] ) 
+        .then( function(msgs){ 
+            // 这里，p1和p2完成并把它们的消息传入
+            return request( 
+                "http://some.url.3/?v=" + msgs.join(",") 
+            ); 
+        } ) 
+        .then( function(msg){ 
+            console.log( msg ); 
+        } ); 
+        ```
+        - `Promise.all([ .. ])`需要一个参数，是一个数组，通常由Promise实例组成。从`Promise.all([ .. ])`调用返回的promise会收到一个完成消息（代码片段中的msg）。这是一个由所有传入promise的完成消息组成的数组，**与指定的顺序一致**（与完成顺序无关）。如果数组是空的，主Promise就会立即完成
+    - 从`Promise.all([ .. ])`返回的主promise在且仅在所有的成员promise都完成后才会完成。如果这些promise中有任何一个被拒绝的话，主`Promise.all([ .. ])`promise就会立即被拒绝，并丢弃来自其他所有promise的全部结果
+    - 永远要记住为每个promise关联一个拒绝/错误处理函数，特别是从`Promise.all([ .. ])`返回的那一个
+2.  `Promise.race([ .. ])`
+    - 有时候你会想只响应“第一个跨过终点线的Promise”，而抛弃其他Promise，这种模式传统上称为门闩，但在Promise中称为竞态
+    - `Promise.race([ .. ])`也接受单个数组参数。这个数组由一个或多个Promise、thenable或立即值组成。立即值之间的竞争在实践中没有太大意义，因为显然列表中的第一个会获胜，就像赛跑中有一个选手是从终点开始比赛一样
+    - 与`Promise.all([ .. ])`不同，一旦有任何一个Promise决议为完成，`Promise.race([ .. ])`就会完成；一旦有任何一个Promise决议为拒绝，它就会拒绝
+    - 一项竞赛需要至少一个“参赛者”。所以，如果你传入了一个空数组，主`race([..])`Promise**永远不会决议**，而不是立即决议
+    - 这次的p1和p2是竞争关系
+        ```javascript
+        // request(..)是一个支持Promise的Ajax工具
+        // 就像我们在本章前面定义的一样
+        var p1 = request( "http://some.url.1/" ); 
+        var p2 = request( "http://some.url.2/" ); 
+        Promise.race( [p1,p2] ) 
+        .then( function(msg){ 
+            // p1或者p2将赢得这场竞赛
+            return request( 
+                "http://some.url.3/?v=" + msg 
+            ); 
+        } ) 
+        .then( function(msg){ 
+            console.log( msg ); 
+        } ); 
+        ```
+        - 因为只有一个promise能够取胜，所以完成值是单个消息，而不是像对`Promise.all([ .. ])`那样的是一个数组
+    - 超时竞赛
+        - 使用`Promise.race([ .. ])`表达Promise超时模式
+            ```javascript
+            // foo()是一个支持Promise的函数
+            // 前面定义的timeoutPromise(..)返回一个promise，
+            // 这个promise会在指定延时之后拒绝
+            // 为foo()设定超时
+            Promise.race( [ 
+                foo(), // 启动foo() 
+                timeoutPromise( 3000 ) // 给它3秒钟
+            ] ) 
+            .then( 
+                function(){ 
+                    // foo(..)按时完成！
+                }, 
+                function(err){ 
+                    // 要么foo()被拒绝，要么只是没能够按时完成，
+                    // 因此要查看err了解具体原因
+                } 
+            ); 
+            ```
+            - 在多数情况下，这个超时模式能够很好地工作
+    - finally
+        - 那些被丢弃或忽略的promise通常最终它们会被垃圾回收，Promise不能被取消，也不应该被取消，因为那会与外部不变性原则冲突，所以它们只能被默默忽略
+        - 那么如果前面例子中的`foo()`保留了一些要用的资源，但是出现了超时，导致这个promise被忽略，在这种模式中，会有什么为超时后主动释放这些保留资源提供任何支持，或者取消任何可能产生的副作用吗？如果你想要的只是记录下`foo()`超时这个事实，又会如何呢
+        - 有些开发者提出，Promise需要一个`finally(..)`回调注册，这个回调在Promise决议后总是会被调用，并且允许你执行任何必要的清理工作。目前，规范还没有支持这一点，不过在ES7+中也许可以，它看起来可能类似于
+            ```javascript
+            var p = Promise.resolve( 42 ); 
+            p.then( something ) 
+            .finally( cleanup ) 
+            .then( another ) 
+            .finally( cleanup );
+            ```
+            - 在各种各样的Promise库中，`finally(..)`还是会创建并返回一个新的Promise（以支持链接继续）。如果`cleanup(..)`函数要返回一个Promise的话，这个promise就会被连接到链中，这意味着这里还是会有前面讨论过的未处理拒绝问题
+        - 同时，我们可以构建一个静态辅助工具来支持查看（而不影响）Promise的决议
+            ```javascript
+            // polyfill安全的guard检查
+            if (!Promise.observe) { 
+                Promise.observe = function(pr,cb) { 
+                    // 观察pr的决议
+                    pr.then( 
+                        function fulfilled (msg){ 
+                            // 安排异步回调（作为Job）
+                            Promise.resolve( msg ).then( cb ); 
+                        }, 
+                        function rejected(err){ 
+                            // 安排异步回调（作为Job）
+                            Promise.resolve( err ).then( cb ); 
+                        } 
+                    ); 
+                    // 返回最初的promise 
+                    return pr; 
+                }; 
+            } 
 
+            //// 下面是如何在前面的超时例子中使用这个工具
+            Promise.race( [ 
+                Promise.observe( 
+                    foo(), // 试着运行foo() 
+                    function cleanup(msg){ 
+                        // 在foo()之后清理，即使它没有在超时之前完成
+                    } 
+                ), 
+                timeoutPromise( 3000 ) // 给它3秒钟
+            ] ) 
+            ```
+            - 这个辅助工具 Promise.observe(..) 只是用来展示可以如何查看 Promise 的完成而不对其产生影响。其他的Promise库有自己的解决方案。不管如何实现，你都很可能遇到需要确保Promise不会被意外默默忽略的情况
+    - `all([ .. ])`和`race([ .. ])`的变体
+        - `none([ .. ])`
+            - 这个模式类似于`all([ .. ])`，不过完成和拒绝的情况互换了。所有的Promise都要被拒绝，即拒绝转化为完成值，反之亦然
+        - `any([ .. ])`
+            - 这个模式与`all([ .. ])`类似，但是会忽略拒绝，所以只需要完成一个而不是全部
+        - `first([ .. ])`
+            - 这个模式类似于与`any([ .. ])`的竞争，即只要第一个Promise完成，它就会忽略后续的任何拒绝和完成
+        - `last([ .. ])`
+            - 这个模式类似于`first([ .. ])`，但却是只有最后一个完成胜出
+        - 比如，可以像这样定义`first([ .. ])`
+            ```javascript
+            // polyfill安全的guard检查
+            if (!Promise.first) { 
+                Promise.first = function(prs) { 
+                    return new Promise( function(resolve,reject){ 
+                        // 在所有promise上循环
+                        prs.forEach( function(pr){ 
+                            // 把值规整化
+                            Promise.resolve( pr ) 
+                            // 不管哪个最先完成，就决议主promise
+                            .then( resolve ); 
+                        } ); 
+                    } ); 
+                }; 
+            } 
+            ```
+            - 在这个`first(..)`实现中，如它的所有promise都拒绝的话，它不会拒绝。它只会挂住，非常类似于`Promise.race([])`。如果需要的话，可以添加额外的逻辑跟踪每个promise拒绝。如果所有的promise都被拒绝，就在主promise上调用`reject()`。可以通过计数，发现每个promise都拒绝后的数量与prs一致，就调用reject
+3.  并发迭代
+    - 有些时候会需要在一列Promise中迭代，并对所有Promise都执行某个任务，非常类似于对同步数组可以做的那样（比如`forEach(..)`、`map(..)`、`some(..)`和`every(..)`）。如果要对每个Promise执行的任务本身是同步的，那这些工具就可以工作，就像前面代码中的`forEach(..)`
+    - 但如果这些任务从根本上是异步的，或者可以/应该并发执行，那你可以使用这些工具的异步版本，许多库中提供了这样的工具
+    - 举例来说，让我们考虑一下一个异步的`map(..)`工具。它接收一个数组的值（可以是Promise或其他任何值），外加要在每个值上运行一个函数（任务）作为参数。`map(..)`本身返回一个promise，其完成值是一个数组，该数组（保持映射顺序）保存任务执行之后的异步完成值
+        ```javascript
+        if (!Promise.map) { 
+            Promise.map = function(vals,cb) { 
+                // 一个等待所有map的promise的新promise 
+                return Promise.all( 
+                    // 注：一般数组map(..)把值数组转换为 promise数组
+                    vals.map( function(val){ 
+                        // 用val异步map之后决议的新promise替换val 
+                        return new Promise( function(resolve){ 
+                            cb( val, resolve ); 
+                        } ); 
+                    } ) 
+                ); 
+            }; 
+        }
+        ```
+        - 在这个`map(..)`实现中，不能发送异步拒绝信号，但如果在映射的回调（`cb(..)`）内出现同步的异常或错误，主`Promise.map(..)`返回的promise就会拒绝
+    - 下面展示如何在一组Promise（而非简单的值）上使用`map(..)`
+        ```javascript
+        var p1 = Promise.resolve( 21 ); 
+        var p2 = Promise.resolve( 42 ); 
+        var p3 = Promise.reject( "Oops" ); 
+        // 把列表中的值加倍，即使是在Promise中
+        Promise.map( [p1,p2,p3], function(pr,done){ 
+            // 保证这一条本身是一个Promise 
+            Promise.resolve( pr ) 
+            .then( 
+                // 提取值作为v 
+                function(v){ 
+                    // map完成的v到新值
+                    done( v * 2 ); 
+                }, 
+                // 或者map到promise拒绝消息
+                done 
+            ); 
+        } ) 
+        .then( function(vals){ 
+            console.log( vals ); // [42,84,"Oops"] 
+        } );
+        ```
 
 
 
