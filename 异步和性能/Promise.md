@@ -1,7 +1,7 @@
 <!--
  * @Author: jiaminghui
  * @Date: 2023-01-25 11:13:31
- * @LastEditTime: 2023-01-28 19:14:41
+ * @LastEditTime: 2023-01-29 17:34:57
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\异步和性能\Promise.md
  * @Description: 
@@ -978,5 +978,356 @@ Promise有链的顺序模式，但是可以基于Promise构建的异步模式抽
         } );
         ```
 
+### Promise API概述
+1.  `new Promise(..)`构造器
+    - 有启示性的构造器`Promise(..)`必须和new一起使用，并且必须提供一个函数回调。这个回调是同步的或立即调用的。这个函数接受两个函数回调，用以支持promise的决议。通常我们把这两个函数称为`resolve(..)`和`reject(..)`
+        ```javascript
+        var p = new Promise( function(resolve,reject){ 
+            // resolve(..)用于决议/完成这个promise
+            // reject(..)用于拒绝这个promise
+        } ); 
+        ```
+        - `reject(..)`就是拒绝这个promise；但`resolve(..)`既可能完成promise，也可能拒绝，要根据传入参数而定。如果传给`resolve(..)`的是一个非Promise、非thenable的立即值，这个promise就会用这个值完成
+        - 但是，如果传给`resolve(..)`的是一个真正的Promise或thenable值，这个值就会被递归展开，并且（要构造的）promise将取用其最终决议值或状态
+2.  `Promise.resolve(..)`和`Promise.reject(..)`
+    - 创建一个已被拒绝的Promise的快捷方式是使用`Promise.reject(..)`，所以以下两个promise是等价的
+        ```javascript
+        var p1 = new Promise( function(resolve,reject){ 
+            reject( "Oops" ); 
+        } ); 
+        var p2 = Promise.reject( "Oops" ); 
+        ```
+    - `Promise.resolve(..)`常用于创建一个已完成的Promise，使用方式与`Promise.reject(..)`类似。但是，`Promise.resolve(..)`也会展开thenable值。在这种情况下，返回的Promise采用传入的这个thenable的最终决议值，可能是完成，也可能是拒绝
+        ```javascript
+        var fulfilledTh = { 
+            then: function(cb) { cb( 42 ); } 
+        }; 
+        var rejectedTh = { 
+            then: function(cb,errCb) { 
+                errCb( "Oops" ); 
+            } 
+        }; 
+        var p1 = Promise.resolve( fulfilledTh ); 
+        var p2 = Promise.resolve( rejectedTh ); 
+        // p1是完成的promise
+        // p2是拒绝的promise
+        ```
+        - 还要记住，如果传入的是真正的Promise，`Promise.resolve(..)`什么都不会做，只会直接把这个值返回。所以，对你不了解属性的值调用`Promise.resolve(..)`，如果它恰好是一个真正的Promise，是不会有额外的开销的
+3.  `then(..)`和`catch(..)`
+    - 每个Promise实例（不是Promise API命名空间）都有`then(..)`和`catch(..)`方法，通过这两个方法可以为这个Promise注册完成和拒绝处理函数。Promise决议之后，立即会调用这两个处理函数之一，但不会两个都调用，而且总是异步调用
+    - `then(..)`接受一个或两个参数：第一个用于完成回调，第二个用于拒绝回调。如果两者中的任何一个被省略或者作为非函数值传入的话，就会替换为相应的默认回调。默认完成回调只是把消息传递下去，而默认拒绝回调则只是重新抛出（传播）其接收到的出错原因。就像刚刚讨论过的一样，`catch(..)`只接受一个拒绝回调作为参数，并自动替换默认完成回调。换句话说，它等价于`then(null,..)`
+        ```javascript
+        p.then( fulfilled ); 
+        p.then( fulfilled, rejected ); 
+        p.catch( rejected ); // 或者p.then( null, rejected ) 
+        ```
+        - `then(..)`和`catch(..)`也会创建并返回一个新的promise，这个promise可以用于实现Promise链式流程控制。如果完成或拒绝回调中抛出异常，返回的promise是被拒绝的。如果任意一个回调返回非Promise、非thenable的立即值，这个值会被用作返回promise的完成值。如果完成处理函数返回一个promise或thenable，那么这个值会被展开，并作为返回promise的决议值
+4.  `Promise.all([ .. ])`和`Promise.race([ .. ])`
+    - ES6 Promise API静态辅助函数`Promise.all([ .. ])`和`Promise.race([ .. ])`都会创建一个Promise作为它们的返回值。这个promise的决议完全由传入的promise数组控制
+    - 对`Promise.all([ .. ])`来说，只有传入的所有promise都完成，返回promise才能完成。如果有任何promise被拒绝，返回的主promise就立即会被拒绝（抛弃任何其他promise的结果）。如果完成的话，你会得到一个数组，其中包含传入的所有promise的完成值。对于拒绝的情况，你只会得到第一个拒绝promise的拒绝理由值
+    - 对`Promise.race([ .. ])`来说，只有第一个决议的promise（完成或拒绝）取胜，并且其决议结果成为返回promise的决议
+        ```javascript
+        var p1 = Promise.resolve( 42 ); 
+        var p2 = Promise.resolve( "Hello World" ); 
+        var p3 = Promise.reject( "Oops" ); 
+        Promise.race( [p1,p2,p3] ) 
+        .then( function(msg){ 
+            console.log( msg ); // 42 
+        } ); 
+        Promise.all( [p1,p2,p3] ) 
+        .catch( function(err){ 
+            console.error( err ); // "Oops" 
+        } ); 
+        Promise.all( [p1,p2] ) 
+        .then( function(msgs){ 
+            console.log( msgs ); // [42,"Hello World"] 
+        } ); 
+        ```
+        - 若向`Promise.all([ .. ])`传入空数组，它会立即完成，但`Promise.race([ .. ])`会挂住，且永远不会决议
+### Promise局限性
+1.  顺序错误处理
+    - Promise的设计局限性（具体来说，就是它们链接的方式）造成了一个让人很容易中招的陷阱，即Promise链中的错误很容易被无意中默默忽略掉
+    - 关于Promise错误，还有其他需要考虑的地方。由于一个Promise链仅仅是连接到一起的成员Promise，没有把整个链标识为一个个体的实体，这意味着没有外部方法可以用于观察可能发生的错误。如果构建了一个没有错误处理函数的Promise链，链中任何地方的任何错误都会在链中一直传播下去，直到被查看（通过在某个步骤注册拒绝处理函数）。在这个特定的例子中，只要有一个指向链中最后一个promise的引用就足够了（下面代码中的p），因为你可以在那里注册拒绝处理函数，而且这个处理函数能够得到所有传播过来的错误的通知
+        ```javascript
+        // foo(..), STEP2(..)以及STEP3(..)都是支持promise的工具
+        var p = foo( 42 ) 
+        .then( STEP2 ) 
+        .then( STEP3 ); 
+        ```
+        - 这里的p并不指向链中的第一个promise（调用`foo(42)`产生的那一个），而是指向最后一个promise，即来自调用`then(STEP3)`的那一个
+        - 还有，这个Promise链中的任何一个步骤都没有显式地处理自身错误。这意味着你可以在p上注册一个拒绝错误处理函数，对于链中任何位置出现的任何错误，这个处理函数都会得到通知`p.catch( handleErrors );`
+        - 但是，如果链中的任何一个步骤事实上进行了自身的错误处理（可能以隐藏或抽象的不可见的方式），那你的`handleErrors(..)`就不会得到通知。基本上，这等同于`try..catch`存在的局限：`try..catch`可能捕获一个异常并简单地吞掉它。所以这并不是Promise独有的局限性
+    - 很多时候并没有为Promise链序列的中间步骤保留的引用。因此，没有这样的引用，你就无法关联错误处理函数来可靠地检查错误
+2.  单一值
+    - 根据定义，Promise只能有一个完成值或一个拒绝理由。在简单的例子中，这不是什么问题，但是在更复杂的场景中，你可能就会发现这是一种局限了。一般的建议是构造一个值封装（比如一个对象或数组）来保持这样的多个信息。这个解决方案可以起作用，但要在Promise链中的每一步都进行封装和解封，就十分丑陋和笨重了
+        - 分裂值：有时候你可以把这一点当作提示你可以/应该把问题分解为两个或更多Promise的信号
+            - 设想你有一个工具 foo(..)，它可以异步产生两个值（x 和 y）
+                ```javascript
+                function getY(x) { 
+                    return new Promise( function(resolve,reject){ 
+                        setTimeout( function(){ 
+                            resolve( (3 * x) - 1 ); 
+                        }, 100 ); 
+                    } ); 
+                } 
+                function foo(bar,baz) { 
+                    var x = bar * baz; 
+                    return getY( x ) 
+                        .then( function(y){ 
+                            // 把两个值封装到容器中
+                            return [x,y]; 
+                        } ); 
+                } 
+                foo( 10, 20 ) 
+                .then( function(msgs){ 
+                    var x = msgs[0]; 
+                    var y = msgs[1]; 
+                    console.log( x, y ); // 200 599 
+                } ); 
+                ```
+            - 首先，我们重新组织一下`foo(..)`返回的内容，这样就不再需要把x和y封装到一个数组值中以通过promise传输。取而代之的是，我们可以把每个值封装到它自己的promise
+                ```javascript
+                function foo(bar,baz) { 
+                    var x = bar * baz; 
+                    // 返回两个promise
+                    return [ 
+                        Promise.resolve( x ), 
+                        getY( x ) 
+                    ]; 
+                } 
+                Promise.all( 
+                    foo( 10, 20 ) 
+                ) 
+                .then( function(msgs){ 
+                    var x = msgs[0]; 
+                    var y = msgs[1]; 
+                    console.log( x, y ); 
+                } ); 
+                ```
+                - 一个promise数组真的要优于传递给单个promise的一个值数组吗？从语法的角度来说这算不上是一个改进。但是，这种方法更符合Promise的设计理念。如果以后需要重构代码把对x和y的计算分开，这种方法就简单得多。
+        - 展开/传递参数
+            - `var x = ..`和`var y = ..`赋值操作仍然是麻烦的开销。我们可以在辅助工具中采用某种函数技巧
+                ```javascript
+                function spread(fn) { 
+                    return Function.apply.bind( fn, null ); 
+                } 
+                Promise.all( 
+                    foo( 10, 20 ) 
+                ) 
+                .then( 
+                    spread( function(x,y){ 
+                        console.log( x, y ); // 200 599 
+                    } ) 
+                ) 
+                ```
+            - 当然，你可以把这个函数戏法在线化，以避免额外的辅助工具
+                ```javascript
+                Promise.all( 
+                    foo( 10, 20 ) 
+                ) 
+                .then( Function.apply.bind( 
+                    function(x,y){ 
+                        console.log( x, y ); // 200 599 
+                    }, 
+                    null 
+                ) ); 
+                ```
+            - ES6给出了一个更好的答案：解构。数组解构赋值形式看起来是这样的
+                ```javascript
+                Promise.all( 
+                    foo( 10, 20 ) 
+                ) 
+                .then( function(msgs){ 
+                    var [x,y] = msgs; 
+                    console.log( x, y ); // 200 599 
+                } ); 
+                ```
+            - 不过最好的是，ES6提供了数组参数解构形式
+                ```javascript
+                Promise.all( 
+                    foo( 10, 20 ) 
+                ) 
+                .then( function([x,y]){ 
+                    console.log( x, y ); // 200 599 
+                } ); 
+                ```
+3.  单决议
+    - Promise最本质的一个特征是：Promise只能被决议一次（完成或拒绝）。在许多异步情况中，你只会获取一个值一次，所以这可以工作良好
+    - 设想这样一个场景：你可能要启动一系列异步步骤以响应某种可能多次发生的激励（就像是事件），比如按钮点击。这样可能不会按照你的期望工作
+        ```javascript
+        // click(..)把"click"事件绑定到一个DOM元素
+        // request(..)是前面定义的支持Promise的Ajax 
+        var p = new Promise( function(resolve,reject){ 
+            click( "#mybtn", resolve ); 
+        } ); 
+        p.then( function(evt){ 
+            var btnID = evt.currentTarget.id; 
+            return request( "http://some.url.1/?id=" + btnID ); 
+        } ) 
+        .then( function(text){ 
+            console.log( text ); 
+        } ); 
+        ```
+        - 只有在你的应用只需要响应按钮点击一次的情况下，这种方式才能工作。如果这个按钮被点击了第二次的话，promise p已经决议，因此第二个`resolve(..)`调用就会被忽略
+    - 因此，你可能需要转化这个范例，为每个事件的发生创建一整个新的Promise链
+        ```javascript
+        click( "#mybtn", function(evt){ 
+            var btnID = evt.currentTarget.id; 
+            request( "http://some.url.1/?id=" + btnID ) 
+            .then( function(text){ 
+                console.log( text ); 
+            } ); 
+        } ); 
+        ```
+        - 这种方法可以工作，因为针对这个按钮上的每个"click"事件都会启动一整个新的Promise序列
+        - 这个设计在某种程度上破坏了关注点与功能分离（SoC）的思想。你很可能想要把事件处理函数的定义和对事件的响应（那个Promise链）的定义放在代码中的不同位置。如果没有辅助机制的话，在这种模式下很难这样实现
+4.  惯性
+    - 要在你自己的代码中开始使用Promise的话，一个具体的障碍是，现存的所有代码都还不理解Promise。如果你已经有大量的基于回调的代码，那么保持编码风格不变要简单得多
+    - Promise提供了一种不同的范式，因此，编码方式的改变程度从某处的个别差异到某种情况下的截然不同都有可能
+    - 考虑如下的类似基于回调的场景
+        ```javascript
+        function foo(x,y,cb) { 
+            ajax( 
+                "http://some.url.1/?x=" + x + "&y=" + y, 
+                cb 
+            ); 
+        } 
+        foo( 11, 31, function(err,text) { 
+            if (err) { 
+                console.error( err ); 
+            } 
+            else { 
+                console.log( text ); 
+            } 
+        } ); 
+        ```
+    - 如前所述，我们绝对需要一个支持Promise而不是基于回调的Ajax工具，可以称之为`request(..)`。你可以实现自己的版本，就像我们所做的一样。但是，如果不得不为每个基于回调的工具手工定义支持Promise的封装，这样的开销会让你不太可能选择支持Promise的重构
+    - Promise没有为这个局限性直接提供答案。多数Promise库确实提供辅助工具，但即使没有库，也可以考虑如下的辅助工具
+        ```javascript
+        // polyfill安全的guard检查
+        if (!Promise.wrap) { 
+            Promise.wrap = function(fn) { 
+                return function() { 
+                    var args = [].slice.call( arguments ); 
+                    return new Promise( function(resolve,reject){ 
+                        fn.apply( 
+                            null, 
+                            args.concat( function(err,v){ 
+                                if (err) { 
+                                    reject( err ); 
+                                } 
+                                else { 
+                                    resolve( v ); 
+                                } 
+                            } ) 
+                        ); 
+                    } ); 
+                }; 
+            }; 
+        }
+        ```
+        - 它接受一个函数，这个函数需要一个error-first风格的回调作为第一个参数，并返回一个新的函数。返回的函数自动创建一个Promise并返回，并替换回调，连接到Promise完成或拒绝
+        - 使用方式：
+            ```javascript
+            var request = Promise.wrap( ajax ); 
+            request( "http://some.url.1/" ) 
+            .then( .. ) 
+            .. 
+            ```
+            - `Promise.wrap(..)`并不产出Promise。它产出的是一个将产生Promise的函数。在某种意义上，产生Promise的函数可以看作是一个Promise工厂。我提议将其命名为“promisory”（“Promise”+“factory”）
+        - 把需要回调的函数封装为支持Promise的函数，这个动作有时被称为“提升”或“Promise工厂化”
+        - 于是，`Promise.wrap(ajax)`产生了一个`ajax(..)`promisory，我们称之为`request(..)`。这个promisory为Ajax响应生成Promise
+        - 如果所有函数都已经是promisory，我们就不需要自己构造了，所以这个额外的步骤有点可惜。但至少这个封装模式（通常）是重复的，所以我们可以像前面展示的那样把它放入`Promise.wrap(..)`辅助工具，以帮助我们的promise编码
+        - 所以，回到前面的例子，我们需要为`ajax(..)`和`foo(..)`都构造一个promisory
+            ```javascript
+            // 为ajax(..)构造一个promisory
+            var request = Promise.wrap( ajax ); 
+            // 重构foo(..)，但使其外部成为基于外部回调的，
+            // 与目前代码的其他部分保持通用
+            // ——只在内部使用 request(..)的promise 
+            function foo(x,y,cb) { 
+                request( 
+                    "http://some.url.1/?x=" + x + "&y=" + y 
+                ) 
+                .then( 
+                    function fulfilled(text){ 
+                        cb( null, text ); 
+                    }, 
+                    cb 
+                ); 
+            } 
+            // 现在，为了这段代码的目的，为foo(..)构造一个 promisory
+            var betterFoo = Promise.wrap( foo ); 
+            // 并使用这个promisory 
+            betterFoo( 11, 31 ) 
+            .then( 
+                function fulfilled(text){ 
+                    console.log( text ); 
+                }, 
+                function rejected(err){ 
+                    console.error( err ); 
+                } 
+            ); 
+            ```
+            - 当然，尽管我们在重构`foo(..)`以使用新的`request(..)`promisory，但是也可以使`foo(..)`本身成为一个promisory
+                ```javascript
+                // 现在foo(..)也是一个promisory，因为它委托了request(..) promisory 
+                function foo(x,y) { 
+                    return request( 
+                        "http://some.url.1/?x=" + x + "&y=" + y 
+                    ); 
+                } 
+                foo( 11, 31 ) 
+                .then( .. ) 
+                ..
+                ```
+            - 尽管原生ES6 Promise并没有提供辅助函数用于这样的promisory封装，但多数库都提供了这样的支持，或者你也可以构建自己的辅助函数
+5.  无法取消的Promise
+    - 一旦创建了一个Promise并为其注册了完成和/或拒绝处理函数，如果出现某种情况使得这个任务悬而未决的话，你也没有办法从外部停止它的进程
+    - 考虑前面的Promise超时场景
+        ```javascript
+        var p = foo( 42 ); 
+        Promise.race( [ 
+            p, 
+            timeoutPromise( 3000 ) 
+        ] ) 
+        .then( 
+            doSomething, 
+            handleError 
+        ); 
+        p.then( function(){ 
+            // 即使在超时的情况下也会发生 :( 
+        } );
+        ```
+        - 这个“超时”相对于promise p是外部的，所以p本身还会继续运行，这一点可能并不是我们所期望的
+        - 一种选择是侵入式地定义你自己的决议回调
+            ```javascript
+            var OK = true; 
+            var p = foo( 42 ); 
+            Promise.race( [ 
+                p, 
+                timeoutPromise( 3000 ) 
+                .catch( function(err){ 
+                    OK = false; 
+                    throw err; 
+                } ) 
+            ] ) 
+            .then( 
+                doSomething, 
+                handleError 
+            ); 
+            p.then( function(){ 
+                if (OK) { 
+                    // 只在没有超时情况下才会发生 :) 
+                } 
+            } ); 
+            ```
+            - 这很丑陋。它可以工作，但是离理想实现还差很远。一般来说，应避免这样的情况
+            - 这个解决方案的丑陋应该是一个线索，它提示取消这个功能属于Promise之上更高级的抽象
+            - 单独的Promise不应该可取消，但是取消一个可序列是合理的，因为你不会像对待Promise那样把序列作为一个单独的不变值来传送
+6.  Promise性能
+    - 相比于回调，Promise进行的动作要多一些，这自然意味着它也会稍慢一些
+    - Promise使所有一切都成为异步的了，即有一些立即（同步）完成的步骤仍然会延迟到任务的下一步。这意味着一个Promise任务序列可能比完全通过回调连接的同样的任务序列运行得稍慢一点
+    - Promise稍慢一些，但是作为交换，你得到的是大量内建的可信任性、对Zalgo的避免以及可组合性
 
 
