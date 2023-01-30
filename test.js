@@ -1,7 +1,7 @@
 /*
  * @Author: jiaminghui
  * @Date: 2023-01-04 22:31:49
- * @LastEditTime: 2023-01-13 21:00:12
+ * @LastEditTime: 2023-01-30 17:05:51
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\test.js
  * @Description: 
@@ -52,3 +52,42 @@ var temp_arr = new Array(1,2,3);
 console.log(temp_arr.length)
 temp_arr[temp_arr.length] = 5;
 console.log(temp_arr);
+
+
+var a = 1; 
+var b = 2; 
+function *foo() { 
+    a++; 
+    yield; 
+    b = b * a; 
+    a = (yield b) + 3; 
+} 
+function *bar() { 
+    b--; 
+    yield; 
+    a = (yield 8) + b; 
+    b = a * (yield 2); 
+}
+function step(gen) { 
+    var it = gen(); 
+    var last; 
+    return function() { 
+        // 不管yield出来的是什么，下一次都把它原样传回去！
+        last = it.next( last ).value; 
+    }; 
+} 
+a = 1; 
+b = 2; 
+var s1 = step( foo ); 
+var s2 = step( bar ); 
+s2(); // b--; 
+s2(); // yield 8  
+s1(); // a++; 
+s2(); // a = 8 + b; 
+// yield 2 
+s1(); // b = b * a; 
+// yield b 
+console.log(a,b);
+// s1(); // a = b + 3; 
+// s2(); // b = a * 2; 
+// console.log(a,b);
