@@ -1,7 +1,7 @@
 /*
  * @Author: jiaminghui
  * @Date: 2023-01-04 22:31:49
- * @LastEditTime: 2023-01-30 17:05:51
+ * @LastEditTime: 2023-02-05 11:38:46
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\test.js
  * @Description: 
@@ -91,3 +91,15 @@ console.log(a,b);
 // s1(); // a = b + 3; 
 // s2(); // b = a * 2; 
 // console.log(a,b);
+
+var obj = {
+    name1:"jmh",
+    name2:"wgw",
+    name3:"lx",
+}
+
+var obj2 = Object.create(obj);
+obj2.work = "whu"
+for (var i in obj2){
+    console.log(i);
+}
