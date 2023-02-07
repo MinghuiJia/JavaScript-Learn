@@ -1,7 +1,7 @@
 <!--
  * @Author: jiaminghui
  * @Date: 2022-12-07 20:46:41
- * @LastEditTime: 2022-12-28 21:54:33
+ * @LastEditTime: 2023-02-07 15:46:45
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\this和对象原型\this.md
  * @Description: 
@@ -79,7 +79,7 @@
         ```
     - `console.log`输出了4次，即函数被调用了4次，但实际上`foo`存储的`count`变量输出却是0
     - `foo.count = 0;`的确向函数对象foo添加了一个属性count；但是this.count中的**this并不是指向那个函数对象**
-    - `foo.count = 0;`其实创建了一个全局变量count，它的值为NaN（具体原理在后面会介绍到）
+    - `this.count++;`其实创建了一个全局变量count，它的值为NaN（具体原理在后面会介绍到）
     - 解决计数的方式是使用词法作用域，创建一个对象`var data={count:0}`来记录函数被调用（`data.count++;`）的次数
     - 函数对象内部引用自身的方式：
         ```javascript

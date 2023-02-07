@@ -1,7 +1,7 @@
 /*
  * @Author: jiaminghui
  * @Date: 2023-01-04 22:31:49
- * @LastEditTime: 2023-02-05 11:38:46
+ * @LastEditTime: 2023-02-07 11:09:40
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\test.js
  * @Description: 
@@ -103,3 +103,12 @@ obj2.work = "whu"
 for (var i in obj2){
     console.log(i);
 }
+
+var foo = true;
+if (foo) {
+    let bar = foo * 2;
+    console.log(bar);
+    // bar = something( bar ); 
+    // console.log( bar );
+}
+// console.log( bar ); // ReferenceError
