@@ -1,7 +1,7 @@
 /*
  * @Author: jiaminghui
  * @Date: 2023-01-04 22:31:49
- * @LastEditTime: 2023-02-07 11:09:40
+ * @LastEditTime: 2023-02-10 19:39:05
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\test.js
  * @Description: 
@@ -100,9 +100,11 @@ var obj = {
 
 var obj2 = Object.create(obj);
 obj2.work = "whu"
+console.log(obj2)
 for (var i in obj2){
     console.log(i);
 }
+console.log("aaaaa")
 
 var foo = true;
 if (foo) {
@@ -112,3 +114,6 @@ if (foo) {
     // console.log( bar );
 }
 // console.log( bar ); // ReferenceError
+
+var version1 = "1.1.1";
+console.log(version1.split("."));
