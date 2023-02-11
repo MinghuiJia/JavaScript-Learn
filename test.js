@@ -117,3 +117,7 @@ if (foo) {
 
 var version1 = "1.1.1";
 console.log(version1.split("."));
+
+var visited = [];
+visited[8] = 0;
+console.log(visited[8]);
