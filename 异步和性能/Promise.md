@@ -1,7 +1,7 @@
 <!--
  * @Author: jiaminghui
  * @Date: 2023-01-25 11:13:31
- * @LastEditTime: 2023-01-29 17:34:57
+ * @LastEditTime: 2023-02-12 18:07:33
  * @LastEditors: jiaminghui
  * @FilePath: \JavaScript_Learn\异步和性能\Promise.md
  * @Description: 
@@ -44,7 +44,7 @@
         return Promise.all( [xPromise, yPromise] ) 
         // 这个promise决议之后，我们取得收到的X和Y值并加在一起
         .then( function(values){ 
-            // values是来自于之前决议的promisei的消息数组
+            // values是来自于之前决议的promise的消息数组
             return values[0] + values[1]; 
         } ); 
     } 
@@ -248,7 +248,7 @@
         var p1 = new Promise( function(resolve,reject){ 
             resolve( p3 ); 
         } ); 
-        p2 = new Promise( function(resolve,reject){ 
+        var p2 = new Promise( function(resolve,reject){ 
             resolve( "A" ); 
         } ); 
         p1.then( function(v){ 
@@ -338,7 +338,7 @@
         - 此外，假如这个promise p有多个`then(..)`注册的回调的话，有些回调会被调用，而有些则不会，情况会非常不透明，难以解释
 8.  是可信任的Promise吗
     - Promise并没有完全摆脱回调。它们只是改变了传递回调的位置。我们并不是把回调传递给`foo(..)`，而是从`foo(..)`得到某个东西（外观上看是一个真正的Promise），然后把回调传给这个东西
-    - 在原生ES6 Promise实现中的解决方案——解决确定返回的这个东西实际上就够确定返回的这个东西实际上就，就是`Promise.resolve(..)`
+    - 在原生ES6 Promise实现中的解决方案——确定返回的这个东西实际上就是`Promise.resolve(..)`
         - 如果向`Promise.resolve(..)`传递一个非Promise、非thenable的立即值，就会得到一个用这个值填充的promise
             ```javascript
             var p1 = new Promise( function(resolve,reject){ 
